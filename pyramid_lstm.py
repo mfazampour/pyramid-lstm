@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import Parameter
 import torch.nn.functional as F
 from collections import namedtuple
+import numpy as np
 
 DirectedCLSTM = namedtuple('DirectedCLSTM', ['c_lstm', 'dir'])
 

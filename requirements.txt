@@ -1,0 +1,17 @@
+numpy
+scipy
+nibabel
+scikit-image
+matplotlib
+torchvision
+marshmallow==3.0.0rc4
+polyaxon-cli==0.4.4
+polyaxon-client==0.4.4
+polyaxon-deploy==0.4.4
+polyaxon-helper==0.4.4
+polyaxon-schemas==0.4.4
+future
+Pillow
+imageio
+tensorboard
+torchviz

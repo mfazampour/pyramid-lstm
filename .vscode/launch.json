@@ -9,7 +9,11 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args": [
+                "--dataFolderPath",
+                "/home/farid/Documents/eden/dataset/RESECT_RegistrationFiles/images/{0}/"
+            ]
         }
     ]
 }

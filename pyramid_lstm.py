@@ -71,21 +71,30 @@ class CLSTM(nn.Module):
 class PyramidLSTM(nn.Module):
     def __init__(self, **kwargs):
         super(PyramidLSTM, self).__init__()
-        self.lstm_list = [CLSTM() for i in range(6)]                
-        self.lstm_list = nn.ModuleList(self.lstm_list)
-        # self.conv1 = nn.Conv3d(1, 64, kernel_size = 3, stride=2)
-        # self.conv2 = nn.Conv3d(64, 128, kernel_size = 3, stride=2)
+        self.lstm_list1 = [CLSTM() for i in range(6)]                
+        self.lstm_list1 = nn.ModuleList(self.lstm_list1)
+        self.lstm_list2 = [CLSTM() for i in range(6)]                
+        self.lstm_list2 = nn.ModuleList(self.lstm_list2)        
+        self.conv1 = nn.Conv3d(2, 64, kernel_size = 3, stride=4)
+        self.conv2 = nn.Conv3d(64, 128, kernel_size = 3, stride=4)
         # self.conv3 = nn.Conv3d(128, 128, kernel_size = 3, stride=2)
-        self.fc = nn.Linear(15680, 10)
+        self.fc1 = nn.Linear(23040, 256)
+        self.fc2 = nn.Linear(256, 6)
         ## for each direction, fist do convolution and then use the result for gates and memories
 
-    def forward(self, x):        
-        h_list = [self.lstm_list[i](x, i) for i in range(6)]
-        out = torch.mean(torch.stack(h_list), dim = 0)
-        # out = F.relu(self.conv1(out))
-        # out = F.relu(self.conv2(out))
+    def forward(self, x1, x2):        
+        h_list1 = [self.lstm_list1[i](x1, i) for i in range(6)]
+        out1 = torch.mean(torch.stack(h_list1), dim = 0)
+        h_list2 = [self.lstm_list2[i](x2, i) for i in range(6)]
+        out2 = torch.mean(torch.stack(h_list2), dim = 0)
+        out = torch.cat((out1, out2), 1)
+        out = F.relu(self.conv1(out))
+        out = F.relu(self.conv2(out))
         # out = F.relu(self.conv3(out))
-        out = out.view(x.shape[0], -1)
-        out = self.fc(out)
-        return F.log_softmax(out, dim=1)
+        out = out.view(out.shape[0], -1)        
+        out = F.relu(self.fc1(out))        
+        return self.fc2(out)
+        
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
     

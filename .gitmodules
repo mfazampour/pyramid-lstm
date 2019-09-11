@@ -1,0 +1,3 @@
+[submodule "DeepPose"]
+	path = DeepPose
+	url = https://github.com/bkainz/DeepPose

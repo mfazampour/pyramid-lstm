@@ -12,7 +12,11 @@
             "console": "integratedTerminal",
             "args": [
                 "--dataFolderPath",
-                "/home/farid/Documents/eden/dataset/RESECT_RegistrationFiles/images/{0}/"
+                "/home/farid/Documents/eden/dataset/RESECT_RegistrationFiles/images/{0}/",
+                "--batchSz",
+                "2",
+                "--resume",
+                "/home/farid/Documents/DeepRegistration/PyramidLSTM/models/from_cluster/checkpoint.pt"
             ]
         }
     ]

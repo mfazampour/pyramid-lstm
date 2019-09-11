@@ -5,6 +5,7 @@ import numpy as np
 from collections import namedtuple
 from skimage.transform import warp
 from scipy.ndimage.interpolation import affine_transform
+from scipy.spatial.transform import Rotation as R
 import nibabel as nib
 from nibabel.affines import apply_affine
 
@@ -22,16 +23,17 @@ from torch.utils import data
 
 
 class RigidDataLoader(data.Dataset):
-    def __init__(self, batch_size, img1_path_pattern, img2_path_pattern, img2_orig_path_pattern, numbers, dataset_count):
+    def __init__(self, batch_size, img1_path_pattern, img2_path_pattern, img2_orig_path_pattern, whole_dataset_numbers, selected_numbers, dataset_count):
         self.batch_size = batch_size
         self.dataset_count = dataset_count
-        self._load_images(img1_path_pattern, img2_path_pattern, img2_orig_path_pattern, numbers)        
+        self._load_images(img1_path_pattern, img2_path_pattern, img2_orig_path_pattern, whole_dataset_numbers, selected_numbers)        
+        self.max_translate = 10
         # self._create_data_set()
 
     """
     load all original images and store in RAM
     """
-    def _load_images(self, img1_path_pattern, img2_path_pattern, us_orig_path_pattern, numbers):
+    def _load_images(self, img1_path_pattern, img2_path_pattern, us_orig_path_pattern, whole_dataset_numbers, selected_numbers):
         # for number in numbers:
         #     img1_path = img1_path_pattern.format(number)
         #     img2_path = img2_path_pattern.format(number)            
@@ -49,7 +51,7 @@ class RigidDataLoader(data.Dataset):
         us_orig_list = []
         mr_affine_list = []
         
-        for number in numbers:
+        for number in whole_dataset_numbers:
             mr_path = img1_path_pattern.format(number)
             us_orig_path = us_orig_path_pattern.format(number)
             mr_nii = nib.load(mr_path)
@@ -60,7 +62,7 @@ class RigidDataLoader(data.Dataset):
         max_margins = np.ceil(self._find_cropping_margin(us_orig_list, mr_affine_list)).astype(int)
         self.image_shape = np.copy(max_margins * 2)
         
-        for number in numbers:
+        for number in selected_numbers:
             mr_path = img1_path_pattern.format(number)
             us_path = img2_path_pattern.format(number)
             us_orig_path = us_orig_path_pattern.format(number)
@@ -125,7 +127,7 @@ class RigidDataLoader(data.Dataset):
         img1 = self._transform_image(img1, base_affine)
         img2 = self._transform_image(img2, base_affine)
         # img2_d, ddf = deform_image(img2, int(10 + 5*(1 - 2*np.random.rand())))            
-        affine, se_3 = self._gen_rigid_transform(only_translate=True)
+        affine, se_3 = self._gen_rigid_transform()
         img2_d = self._transform_image(img2, affine)
         return se_3, self.expand_dim(img2), self.expand_dim(img1), self.expand_dim(img2_d)
 
@@ -138,15 +140,15 @@ class RigidDataLoader(data.Dataset):
     """
     def _gen_rigid_transform(self, only_translate = False):         
         sign_angles = np.where(np.random.rand(3) < 0.5, -1, 1)                  
-        angles = np.random.rand(3) * 5 * np.pi / 180 * sign_angles
+        angles = np.random.rand(3) * 10 * np.pi / 180 * sign_angles
 
         if only_translate:
             angles = angles * 0
-        max_translate = 5
+        
         sign_translate = np.where(np.random.rand(3) < 0.5, -1, 1)
-        translate = (np.random.rand(3) * max_translate * sign_translate).astype(np.int)        
+        translate = np.random.rand(3) * self.max_translate * sign_translate       
         affine_mat = trf.compose_matrix(angles=angles, translate=translate)
-        se_3 = [translate[0]/max_translate, translate[1]/max_translate, translate[2]/max_translate, affine_mat[2,1]-affine_mat[1,2], affine_mat[0,2]-affine_mat[2,0], affine_mat[1,0]-affine_mat[0,1]]
+        se_3 = [translate[0]/self.max_translate, translate[1]/self.max_translate, translate[2]/self.max_translate, affine_mat[2,1]-affine_mat[1,2], affine_mat[0,2]-affine_mat[2,0], affine_mat[1,0]-affine_mat[0,1]]
         return affine_mat, se_3
 
     def _transform_image(self, img, affine_mat):
@@ -165,6 +167,25 @@ class RigidDataLoader(data.Dataset):
         # return len(self.img1_array)
         return self.dataset_count
 
+    def outputToRotTranData(self, output):
+        translation = output[0:3] * self.max_translate        
+        euler = self.so3_to_euler_angles(output[3:6])
+        return translation, euler
+
+    def so3_to_euler_angles(self, axis):        
+        norm = np.linalg.norm(axis)
+        if norm < 1e-5:
+            return R.from_rotvec([0,0,0]).as_euler('xyz', degrees=True)
+        theta = np.arcsin(norm/2)
+        axis = axis/norm
+        rotation_matrix = R.from_rotvec(axis * theta)
+        return rotation_matrix.as_euler('xyz', degrees=True)
+
+    def outputToAffineMatrix(self, output):
+        translation = output[0:3] * self.max_translate        
+        euler = self.so3_to_euler_angles(output[3:6])
+        return trf.compose_matrix(angles=euler * np.pi/180, translate=translation)
+
 
 if __name__ == "__main__":
     data_folder = '/home/farid/Documents/eden/dataset/RESECT_RegistrationFiles/images/{0}/'
@@ -172,7 +193,8 @@ if __name__ == "__main__":
     t1_format = data_folder + 'brainmask_{0}.nii.gz'
     us_format = data_folder + 'Case{0}-US-before_resampled.nii.gz'
     us_format_orig = '/home/farid/Documents/eden/dataset/RESECT/NIFTI/Case{0}/US/Case{0}-US-before.nii.gz'
-    training_set = RigidDataLoader(2, t1_format, us_format, us_format_orig, [1,2,3,4,5,6], 1)
+    training_set = RigidDataLoader(2, t1_format, us_format, us_format_orig, [1,2,3,4,5,6], [1,2,3,4,5], 1)
+    test_set = RigidDataLoader(2, t1_format, us_format, us_format_orig, [1,2,3,4,5,6], [6], 1)
 
     # Generators
     # training_set = Dataset(partition['train'], labels)

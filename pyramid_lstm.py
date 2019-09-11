@@ -11,25 +11,28 @@ DirectedCLSTM = namedtuple('DirectedCLSTM', ['c_lstm', 'dir'])
 class GateFilter(nn.Module):
     def __init__(self, in_channels, out_channels, **kwargs):
         super(GateFilter, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 5, padding=2)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, 5, padding=2)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
         self.bias = Parameter(torch.Tensor(out_channels))
+        self.bias.data.uniform_(-0.1, 0.1)
 
     def forward(self, x, h, use_sigmoid = True):
         x = F.relu(self.conv1(x))
         h = F.relu(self.conv2(h))        
-        if use_sigmoid:
-            return torch.sigmoid(x + h + self.bias)
+        if use_sigmoid:            
+            return torch.sigmoid(x + h + self.bias.view(1,-1,1,1).expand_as(x))
         else:
-            return torch.tanh(x + h + self.bias)
+            return torch.tanh(x + h + self.bias.view(1,-1,1,1).expand_as(x))
 
 class CLSTM(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, in_channels=1, out_channels=1, **kwargs):
         super(CLSTM, self).__init__()
-        self.i_gate = GateFilter(1,1)
-        self.f_gate = GateFilter(1,1)
-        self.c_gate = GateFilter(1,1)
-        self.o_gate = GateFilter(1,1)
+        self.i_gate = GateFilter(in_channels,out_channels)
+        self.f_gate = GateFilter(in_channels,out_channels)
+        self.c_gate = GateFilter(in_channels,out_channels)
+        self.o_gate = GateFilter(in_channels,out_channels)
+        self.squeeze_h = nn.Conv2d(out_channels, 1, 3, padding=1)
+        self.out_channels = out_channels
 
     def get_dim_from_direction(self, direction):
         return int(direction/2) + 2
@@ -41,7 +44,9 @@ class CLSTM(nn.Module):
         if direction % 2 != 0:
             positions = np.flip(positions)
         
-        h = torch.zeros_like(x, dtype=torch.float)
+        shape = list(x.shape)
+        shape[1] = self.out_channels
+        h = torch.zeros(shape, dtype=torch.float)
         if torch.cuda.is_available:
             h = h.cuda()
         x_chunked = x.chunk(len(positions), dim=dim)
@@ -54,15 +59,16 @@ class CLSTM(nn.Module):
                 h_prev = h_chunked[pos]
             else:
                 h_prev = h_chunked[positions[idx-1]]
+            h_prev = self.squeeze_h(h_prev)
             i_now = self.i_gate(x_chunked[pos], h_prev)
             f_now = self.f_gate(x_chunked[pos], h_prev)
             c_now = self.c_gate(x_chunked[pos], h_prev, use_sigmoid = False)
+            o_now = self.o_gate(x_chunked[pos], h_prev)
             if idx > 0:
-                c_now = c_now*i_now + c_prev*i_now
+                c_now = c_now*i_now + c_prev*f_now
             else:
                 c_now = c_now*i_now
             c_prev = c_now.clone()
-            o_now = self.o_gate(x_chunked[pos], h_prev)
             h_chunked[pos] = o_now * torch.tanh(c_now)
         
         h = torch.stack(h_chunked, dim = dim)
@@ -71,11 +77,11 @@ class CLSTM(nn.Module):
 class PyramidLSTM(nn.Module):
     def __init__(self, **kwargs):
         super(PyramidLSTM, self).__init__()
-        self.lstm_list1 = [CLSTM() for i in range(6)]                
+        self.lstm_list1 = [CLSTM(out_channels=4) for i in range(6)]                
         self.lstm_list1 = nn.ModuleList(self.lstm_list1)
-        self.lstm_list2 = [CLSTM() for i in range(6)]                
+        self.lstm_list2 = [CLSTM(out_channels=4) for i in range(6)]                
         self.lstm_list2 = nn.ModuleList(self.lstm_list2)        
-        self.conv1 = nn.Conv3d(2, 64, kernel_size = 3, stride=4)
+        self.conv1 = nn.Conv3d(8, 64, kernel_size = 3, stride=4)
         self.conv2 = nn.Conv3d(64, 128, kernel_size = 3, stride=4)
         # self.conv3 = nn.Conv3d(128, 128, kernel_size = 3, stride=2)
         self.fc1 = nn.Linear(23040, 256)

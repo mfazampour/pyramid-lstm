@@ -28,18 +28,18 @@ import shutil
 # from tensorboardX import SummaryWriter
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from polyaxon_helper import (
-    get_cluster_def,
-    get_declarations,
-    get_experiment_info,
-    get_task_info,
-    get_tf_config,
-    get_job_info,
-    get_outputs_path,
-    get_outputs_refs_paths,
-    get_data_paths,
-    get_log_level
-)
+# from polyaxon_helper import (
+#     get_cluster_def,
+#     get_declarations,
+#     get_experiment_info,
+#     get_task_info,
+#     get_tf_config,
+#     get_job_info,
+#     get_outputs_path,
+#     get_outputs_refs_paths,
+#     get_data_paths,
+#     get_log_level
+# )
 
 
 from pyramid_lstm import PyramidLSTM
@@ -62,18 +62,46 @@ def weights_init(m):
 def eval(args, epoch, model, data_loader, writer):
     model.eval()    
     losses = []
+    diff_translation = []
+    diff_rotation = []
+    ssd_ratio = []
     for batch_idx, (batch_data) in enumerate(data_loader):
         img1, img2_deformed = batch_data.img1, batch_data.img2
         target_transform, img2_orig = batch_data.target_transform, batch_data.img2_orig
         if args.cuda:
             img1, img2_deformed, target_transform = img1.float().cuda(), img2_deformed.float().cuda(), target_transform.float().cuda()
         img1, img2_deformed, target_transform =  Variable(img1),  Variable(img2_deformed),  Variable(target_transform)
-        output = model(img1, img2_deformed)         
-        loss = F.mse_loss(output, target_transform)                
-        losses.append(loss.detach().cpu().numpy())        
+        output = model(img1, img2_deformed) 
+        loss = F.mse_loss(output, target_transform)
+        losses.append(loss.detach().cpu().numpy())
+        output = output.detach().cpu().numpy().squeeze()
+        target_transform = target_transform.detach().cpu().numpy().squeeze()
+        print('target value is:\n', target_transform)
+        print('output is:\n', output)
+        for i in range(target_transform.shape[0]):
+            tr_gt, rot_gt = data_loader.dataset.outputToRotTranData(target_transform[i,:])
+            tr_out, rot_out = data_loader.dataset.outputToRotTranData(output[i,:])
+            diff_translation.append(np.abs(tr_gt-tr_out))
+            # target_rotation = data_loader.dataset.so3_to_euler_angles(target_transform[i,3:6])
+            # output_rotation = data_loader.dataset.so3_to_euler_angles(output[i,3:6])
+            diff_rotation.append(np.abs(rot_gt-rot_out))
+            affine = data_loader.dataset.outputToAffineMatrix(output[i,:])
+            A = img2_orig[i,0,...].squeeze().numpy()
+            B = data_loader.dataset._transform_image(A, affine)
+            C = img2_deformed[i,0,...].detach().cpu().numpy().squeeze()
+            ssd_ratio.append((np.square(C - B)).mean()/(np.square(C - A)).mean())
 
+    diff_rotation = np.mean(diff_rotation, axis=0)
+    diff_translation = np.mean(diff_translation, axis=0)
     ## save the loss using tensorboardX
-    writer.add_scalars('data/eval', { 'loss': np.mean(losses)                            
+    writer.add_scalars('data/eval', { 'loss': np.mean(losses),
+                            'x': diff_translation[0],
+                            'y': diff_translation[1],
+                            'z': diff_translation[2],
+                            'x_angle': diff_rotation[0],
+                            'y_angle': diff_rotation[1],
+                            'z_angle': diff_rotation[2],
+                            'ssd_ratio' : np.mean(ssd_ratio)
                             }, epoch)
 
 def train(args, epoch, model, data_loader, optimizer, writer):
@@ -89,7 +117,7 @@ def train(args, epoch, model, data_loader, optimizer, writer):
 
         output = model(img1, img2_deformed)         
 
-        ## TODO: chagne loss here to geodesic loss
+        # TODO: chagne loss here to geodesic loss
         # SE3_DIM = 6
         # weight = np.ones(SE3_DIM)
         # loss = SE3GeodesicLoss(weight)(output, target_transform)
@@ -112,7 +140,8 @@ def save_checkpoint(state, is_best, filename):
     # if is_best:
     #     shutil.copyfile(filename, 'model_best.pth.tar')
 
-def main():    
+def main():  
+    
     ## read input parameters
     parser = argparse.ArgumentParser()
     parser.add_argument('--batchSz', type=int, default=2)
@@ -142,13 +171,15 @@ def main():
     
     ## initialize tensorboard
     if os.environ.get('POLYAXON_RUN_OUTPUTS_PATH'):        
+        if os.path.isdir(os.environ.get('POLYAXON_RUN_OUTPUTS_PATH') + '/tensorboard/'):
+            shutil.rmtree(os.environ.get('POLYAXON_RUN_OUTPUTS_PATH') + '/tensorboard/')
         writer = SummaryWriter(log_dir = os.environ.get('POLYAXON_RUN_OUTPUTS_PATH') + '/tensorboard/')
     else:
         save_dir = file_dir
         if not os.path.isdir(save_dir + '/tensorboard'):     
             os.mkdir(save_dir + '/tensorboard')
         if os.path.isdir(save_dir + '/tensorboard/' + args.exp_name):
-            shutil.rmtree(save_dir + '/tensorboard/' + args.exp_name)
+            shutil.rmtree(save_dir + '/tensorboard/' + args.exp_name)                
         writer = SummaryWriter(log_dir = save_dir + '/tensorboard/' + args.exp_name)
 
     ## create model
@@ -176,14 +207,16 @@ def main():
     ## load weights or initialize
     if args.resume:
         if os.path.isfile(args.resume):
-            # print("=> loading checkpoint '{}'".format(args.resume))            
-            # args.start_epoch = 1
-            # model.load_state_dict(torch.load(args.resume))
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'], strict=False)
-            # optimizer.load_state_dict(checkpoint['optimizer'])
+            if checkpoint.get('optimizer', None) is not None:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.cuda()
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
@@ -208,18 +241,19 @@ def main():
 
     params = {'batch_size': args.batchSz,
             'shuffle': True,
-            'num_workers': 1}
+            'num_workers': 2}
 
-    train_loader_rigid = RigidDataLoader(args.batchSz, mr_template_path, us_template_path, us_format_orig, [1,2,3,4,5,6], dataset_count=10)
+    train_loader_rigid = RigidDataLoader(args.batchSz, mr_template_path, us_template_path, us_format_orig, [1,2,3,4,5,6,7,8], [1,2,3,4,5,6], dataset_count=10)
     training_generater = DataLoader(train_loader_rigid, **params)
 
-    test_loader_rigid = RigidDataLoader(args.batchSz, mr_template_path, us_template_path, us_format_orig, [1,2,3,4,5,6], dataset_count=2)
+    test_loader_rigid = RigidDataLoader(1, mr_template_path, us_template_path, us_format_orig, [1,2,3,4,5,6,7,8], [7,8], dataset_count=2)
     test_generater = DataLoader(test_loader_rigid, **params)
 
+    # eval(args, args.start_epoch, model, test_generater, writer)
     ## train or inference
-    for epoch in range(args.start_epoch, args.nEpochs + args.start_epoch):
+    for epoch in range(args.start_epoch, args.nEpochs + args.start_epoch + 1):
         train(args, epoch, model, training_generater, optimizer, writer)
-        if np.mod(epoch,1) == 0:
+        if np.mod(epoch,10) == 0:
             eval(args, epoch, model, test_generater, writer)
         if np.mod(epoch,50) == 0:
             if args.resume:

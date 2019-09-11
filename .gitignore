@@ -36,3 +36,6 @@ test-results.xml
 /data
 /tensorboard
 /model
+models/
+
+\.polyaxon/

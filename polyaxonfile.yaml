@@ -14,8 +14,8 @@ environment:
       requests: 1
       limits: 1
     memory:
-      requests: 16000
-      limits: 20000
+      requests: 10000
+      limits: 14000
 
 
 build:
@@ -24,4 +24,4 @@ build:
     - pip install -r requirements.txt
 
 run:
- cmd: python3 -u train.py --resume=$POLYAXON_RUN_OUTPUTS_PATH/checkpoint.pt --no-LSTM
+ cmd: python3 -u train.py --resume=$POLYAXON_RUN_OUTPUTS_PATH/checkpoint.pt --nEpochs=200 --lr=1e-5

@@ -45,6 +45,7 @@ from torch.utils.data import DataLoader
 from pyramid_lstm import PyramidLSTM
 from data_generator import RigidDataLoader
 from data_generator import DataObject
+from DeepPose.pytorch.se3_geodesic_loss import SE3GeodesicLoss
 
 import multiprocessing
 multiprocessing.set_start_method('spawn', True)
@@ -112,16 +113,18 @@ def train(args, epoch, model, data_loader, optimizer, writer):
         target_transform, img2_orig = batch_data.target_transform, batch_data.img2_orig
 
         if args.cuda:
-            img1, img2_deformed, target_transform = img1.float().cuda(), img2_deformed.float().cuda(), target_transform.float().cuda()
+            img1, img2_deformed, target_transform = img1.float().cuda(), img2_deformed.float().cuda(), target_transform.float() #.cuda()
         img1, img2_deformed, target_transform =  Variable(img1),  Variable(img2_deformed),  Variable(target_transform)
 
         output = model(img1, img2_deformed)         
 
         # TODO: chagne loss here to geodesic loss
-        # SE3_DIM = 6
-        # weight = np.ones(SE3_DIM)
-        # loss = SE3GeodesicLoss(weight)(output, target_transform)
-        loss = F.mse_loss(output, target_transform)        
+        SE3_DIM = 6
+        weight = np.ones(SE3_DIM)
+        loss = SE3GeodesicLoss(weight)(output, target_transform)
+        if torch.cuda.is_available():
+            loss = loss.cuda()           
+        # loss = F.mse_loss(output, target_transform.cuda())        
 
         optimizer.zero_grad()
         loss.backward()
@@ -252,7 +255,8 @@ def main():
     # eval(args, args.start_epoch, model, test_generater, writer)
     ## train or inference
     for epoch in range(args.start_epoch, args.nEpochs + args.start_epoch + 1):
-        train(args, epoch, model, training_generater, optimizer, writer)
+        print("epoch number: {}".format(epoch))
+        train(args, epoch, model, training_generater, optimizer, writer)        
         if np.mod(epoch,10) == 0:
             eval(args, epoch, model, test_generater, writer)
         if np.mod(epoch,50) == 0:

@@ -77,16 +77,20 @@ def eval(args, epoch, model, data_loader, writer):
         losses.append(loss.detach().cpu().numpy())
         output = output.detach().cpu().numpy().squeeze()
         target_transform = target_transform.detach().cpu().numpy().squeeze()
+        if len(target_transform.shape):
+            target_transform = np.expand_dims(target_transform, 0)
+        if len(output.shape):
+            output = np.expand_dims(output, 0)
         print('target value is:\n', target_transform)
         print('output is:\n', output)
         for i in range(target_transform.shape[0]):
-            tr_gt, rot_gt = data_loader.dataset.outputToRotTranData(target_transform[i,:])
-            tr_out, rot_out = data_loader.dataset.outputToRotTranData(output[i,:])
+            tr_gt, rot_gt = data_loader.dataset.outputToRotTranData(target_transform[i,...])
+            tr_out, rot_out = data_loader.dataset.outputToRotTranData(output[i,...])
             diff_translation.append(np.abs(tr_gt-tr_out))
             # target_rotation = data_loader.dataset.so3_to_euler_angles(target_transform[i,3:6])
             # output_rotation = data_loader.dataset.so3_to_euler_angles(output[i,3:6])
             diff_rotation.append(np.abs(rot_gt-rot_out))
-            affine = data_loader.dataset.outputToAffineMatrix(output[i,:])
+            affine = data_loader.dataset.outputToAffineMatrix(output[i,...])
             A = img2_orig[i,0,...].squeeze().numpy()
             B = data_loader.dataset._transform_image(A, affine)
             C = img2_deformed[i,0,...].detach().cpu().numpy().squeeze()

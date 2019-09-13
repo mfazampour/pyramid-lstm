@@ -24,4 +24,4 @@ build:
     - pip install -r requirements.txt
 
 run:
- cmd: python3 -u train.py --resume=$POLYAXON_RUN_OUTPUTS_PATH/checkpoint.pt --nEpochs=400 --lr=1e-5
+ cmd: python3 -u train.py --resume=$POLYAXON_RUN_OUTPUTS_PATH/checkpoint.pt --nEpochs=400 --lr=1e-5 --batchSz=1

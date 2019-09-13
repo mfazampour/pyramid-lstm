@@ -11,14 +11,14 @@ DirectedCLSTM = namedtuple('DirectedCLSTM', ['c_lstm', 'dir'])
 class GateFilter(nn.Module):
     def __init__(self, in_channels, out_channels, **kwargs):
         super(GateFilter, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv_x = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv_h = nn.Conv2d(1, out_channels, 3, padding=1)
         self.bias = Parameter(torch.Tensor(out_channels))
         self.bias.data.uniform_(-0.1, 0.1)
 
     def forward(self, x, h, use_sigmoid = True):
-        x = F.relu(self.conv1(x))
-        h = F.relu(self.conv2(h))        
+        x = F.relu(self.conv_x(x))
+        h = F.relu(self.conv_h(h))        
         if use_sigmoid:            
             return torch.sigmoid(x + h + self.bias.view(1,-1,1,1).expand_as(x))
         else:
@@ -81,7 +81,11 @@ class PyramidLSTM(nn.Module):
         self.lstm_list1 = nn.ModuleList(self.lstm_list1)
         self.lstm_list2 = [CLSTM(out_channels=4) for i in range(6)]                
         self.lstm_list2 = nn.ModuleList(self.lstm_list2)        
-        self.conv1 = nn.Conv3d(8, 64, kernel_size = 3, stride=4)
+        self.lstm_list3 = [CLSTM(in_channels=4, out_channels=8) for i in range(6)]                
+        self.lstm_list3 = nn.ModuleList(self.lstm_list3)
+        self.lstm_list4 = [CLSTM(in_channels=4, out_channels=8) for i in range(6)]                
+        self.lstm_list4 = nn.ModuleList(self.lstm_list4)        
+        self.conv1 = nn.Conv3d(16, 64, kernel_size = 3, stride=4)
         self.conv2 = nn.Conv3d(64, 128, kernel_size = 3, stride=4)
         # self.conv3 = nn.Conv3d(128, 128, kernel_size = 3, stride=2)
         self.fc1 = nn.Linear(23040, 256)
@@ -93,7 +97,11 @@ class PyramidLSTM(nn.Module):
         out1 = torch.mean(torch.stack(h_list1), dim = 0)
         h_list2 = [self.lstm_list2[i](x2, i) for i in range(6)]
         out2 = torch.mean(torch.stack(h_list2), dim = 0)
-        out = torch.cat((out1, out2), 1)
+        h_list3 = [self.lstm_list3[i](out1, i) for i in range(6)]
+        out3 = torch.mean(torch.stack(h_list3), dim = 0)
+        h_list4 = [self.lstm_list4[i](out2, i) for i in range(6)]
+        out4 = torch.mean(torch.stack(h_list4), dim = 0)
+        out = torch.cat((out3, out4), 1)
         out = F.relu(self.conv1(out))
         out = F.relu(self.conv2(out))
         # out = F.relu(self.conv3(out))

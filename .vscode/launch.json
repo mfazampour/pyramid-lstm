@@ -14,7 +14,7 @@
                 "--dataFolderPath",
                 "/home/farid/Documents/eden/dataset/RESECT_RegistrationFiles/images/{0}/",
                 "--batchSz",
-                "2",
+                "1",
                 "--resume",
                 "/home/farid/Documents/DeepRegistration/PyramidLSTM/models/from_cluster/checkpoint.pt"
             ]
